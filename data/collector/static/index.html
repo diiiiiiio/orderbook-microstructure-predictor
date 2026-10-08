@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binance 采集监控</title>
+<style>
+:root{color-scheme:light;
+ --surface:#fcfcfb;--surface-2:#f0efec;--border:#dddcd7;--text:#0b0b0b;--text-2:#52514e;--text-3:#7a7974;
+ --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;
+ --ok:#008300;--warn:#eda100;--serious:#eb6834;--critical:#e34948;--grid:#e6e5e1}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;
+ --surface:#1a1a19;--surface-2:#242423;--border:#383835;--text:#fff;--text-2:#c3c2b7;--text-3:#8f8e86;
+ --s1:#3987e5;--s2:#d95926;--s3:#199e70;--ok:#4fbf4f;--warn:#c98500;--serious:#d95926;--critical:#e66767;--grid:#2e2e2c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface);color:var(--text);font:13px/1.45 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2}
+h1{font-size:15px;margin:0;font-weight:600}
+h2{font-size:13px;margin:0 0 8px;color:var(--text-2);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+main{padding:12px 16px;display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+section{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;grid-column:span 12;overflow:auto}
+.c6{grid-column:span 6}.c4{grid-column:span 4}.c8{grid-column:span 8}.c3{grid-column:span 3}
+@media (max-width:1100px){.c6,.c4,.c8,.c3{grid-column:span 12}}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-weight:600;border:1px solid var(--border)}
+.badge::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.ok{color:var(--ok)}.degraded{color:var(--warn)}.failed{color:var(--critical)}.unknown{color:var(--text-3)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.tile{background:var(--surface-2);border-radius:6px;padding:8px 10px}
+.tile .k{color:var(--text-3);font-size:11px}.tile .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .s{color:var(--text-2);font-size:11px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{color:var(--text-3);font-weight:500;font-size:11px}
+td.num,th.num{text-align:right}
+.muted{color:var(--text-3)}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+select,button,input{font:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:4px 8px}
+button{cursor:pointer}
+svg{display:block;width:100%;height:auto}
+.axis text{fill:var(--text-3);font-size:10px}.axis line,.axis path{stroke:var(--grid)}
+.tip{position:fixed;pointer-events:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.15);display:none;z-index:9}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--text-2);margin:4px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.bookgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bid{color:var(--s3)}.ask{color:var(--s2)}
+pre{background:var(--surface-2);padding:10px;border-radius:6px;white-space:pre-wrap;font-size:12px;max-height:480px;overflow:auto}
+.sev-error{color:var(--critical)}.sev-warning{color:var(--warn)}.sev-info{color:var(--text-2)}
+.bar{height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--s1)}
+details summary{cursor:pointer;color:var(--text-2)}
+</style>
+</head>
+<body>
+<header>
+ <h1>Binance USDⓈ-M 采集监控</h1>
+ <span id="health" class="badge unknown">加载中</span>
+ <span id="alive" class="muted"></span>
+ <span id="meta" class="muted mono"></span>
+ <span style="flex:1"></span>
+ <label><input type="checkbox" id="auto" checked> 自动刷新 5s</label>
+ <button id="refresh">刷新</button>
+ <a href="/backtest" style="color:var(--s1)">回测结果 →</a>
+</header>
+<main>
+ <section class="c8"><h2>管线</h2><div class="tiles" id="tiles"></div></section>
+ <section class="c4"><h2>连接</h2><table id="conns"></table></section>
+ <section><h2>各交易对 / 数据流</h2><div id="symbols" class="bookgrid"></div></section>
+ <section class="c8"><h2>中间价与价差（book_top20 前 1 档）</h2>
+  <div class="row"><select id="symSel"></select><select id="daySel"><option value="">最近 12 个文件</option></select><span id="seriesInfo" class="muted"></span></div>
+  <div id="midChart"></div><div id="spreadChart"></div></section>
+ <section class="c4"><h2>每小时行数（UTC）</h2><div class="legend"><span><i style="background:var(--s1)"></i>book_top20</span><span><i style="background:var(--s2)"></i>agg_trades</span><span><i style="background:var(--s3)"></i>mark_price</span></div><div id="hourlyChart"></div><div id="hourlyInfo" class="muted"></div></section>
+ <section class="c6"><h2>最新盘口 <span id="bookMeta" class="muted mono"></span></h2><div class="bookgrid"><table id="bids"></table><table id="asks"></table></div></section>
+ <section class="c6"><h2>最近成交（aggTrade）</h2><table id="trades"></table></section>
+ <section><h2>数据库存量（normalized Parquet）</h2><div class="row"><span id="rawInfo" class="muted"></span></div><table id="inventory"></table></section>
+ <section class="c8"><h2>缺口 gaps（每个 gap_id 最新状态）</h2><div class="row"><select id="gapFilter"><option value="">全部状态</option><option>open</option><option>repaired</option><option>partial</option><option>unrepairable</option><option>not_applicable</option></select><span id="gapSummary" class="muted"></span></div><table id="gaps"></table></section>
+ <section class="c4"><h2>质量事件（最近）</h2><div class="row"><select id="sevFilter"><option value="">全部</option><option>error</option><option>warning</option><option>info</option></select></div><table id="quality"></table></section>
+ <section><h2>日报</h2><div class="row"><select id="reportSel"></select></div><pre id="report" class="mono"></pre></section>
+</main>
+<div class="tip" id="tip"></div>
+<script>
+const $=s=>document.querySelector(s);
+const fmtN=v=>v==null?'-':Number(v).toLocaleString('en-US');
+const fmtB=v=>v==null?'-':v<1e6?(v/1e3).toFixed(1)+' KB':v<1e9?(v/1e6).toFixed(1)+' MB':(v/1e9).toFixed(2)+' GB';
+const fmtNs=v=>v==null?'-':new Date(v/1e6).toISOString().replace('T',' ').slice(0,23)+'Z';
+const fmtMs=v=>v==null?'-':new Date(v).toISOString().replace('T',' ').slice(0,23)+'Z';
+const ago=ns=>ns==null?'-':((Date.now()-ns/1e6)/1000).toFixed(1)+'s 前';
+const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const api=async p=>{const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw new Error(p+' '+r.status);return r.json()};
+let cfgSymbols=['BTCUSDT','ETHUSDT'];
+
+function tile(k,v,s){return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s??''}</div></div>`}
+function tableHTML(cols,rows){return `<thead><tr>${cols.map(c=>`<th class="${c.num?'num':''}">${c.h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td class="${c.num?'num':''} ${c.cls?c.cls(r):''}">${c.f(r)}</td>`).join('')}</tr>`).join('')}</tbody>`}
+
+async function loadStatus(){
+ const s=await api('/api/status'); const m=s._meta||{};
+ const h=$('#health');
+ if(!m.exists){h.textContent='无 status.json';h.className='badge unknown';return}
+ const lvl=(s.health||{}).level||'unknown';
+ h.textContent=lvl.toUpperCase()+((s.health.reasons||[]).length?' · '+s.health.reasons.join(', '):'');
+ h.className='badge '+lvl;
+ $('#alive').textContent=m.collector_alive?`采集器在线 · status 更新于 ${m.age_s}s 前`:`采集器离线（status 停在 ${m.age_s}s 前${s.health.stop_reason?'，停止原因 '+s.health.stop_reason:''}）`;
+ $('#alive').className=m.collector_alive?'ok':'failed';
+ $('#meta').textContent=`session ${s.session_id} · 运行 ${fmtN(s.uptime_s)}s · ${m.data_dir} · 剩余磁盘 ${m.disk_free_gb} GB`;
+ const p=s.pipeline||{};
+ $('#tiles').innerHTML=[
+  tile('已收到(分发)',fmtN(p.messages_dispatched),`分发滞后 ${p.dispatch_lag_ms} ms`),
+  tile('raw 已写入',fmtN(p.raw_records_written),fmtB(p.raw_bytes_written)),
+  tile('raw 已 fsync',fmtN(p.raw_records_fsynced),`未落盘 ${fmtN((p.raw_records_written||0)-(p.raw_records_fsynced||0))}`),
+  tile('接收队列',`${fmtN(p.queue_size)} / ${fmtN(p.queue_max)}`,`溢出 ${fmtN(p.queue_overflow_total)}`),
+  tile('写队列',`${fmtN(p.writer_queue_size)} / ${fmtN(p.writer_queue_max)}`,`溢出 ${fmtN(p.overflow_total)} · 滞后 ${p.writer_lag_s??'-'}s`),
+  tile('写线程',p.error?'失败':(p.alive?'运行':'停止'),p.error?esc(p.error).slice(0,60):`已关闭分片 ${fmtN(p.raw_closed_shards)}`),
+  tile('REST 权重/分',fmtN((s.rest||{}).weight_used_1m),`请求 ${fmtN((s.rest||{}).requests)} · 限流 ${fmtN((s.rest||{}).rate_limited)}`),
+  tile('补数',`${fmtN((s.backfill||{}).gaps_repaired)} / ${fmtN((s.backfill||{}).gaps_seen)}`,`补回成交 ${fmtN((s.backfill||{}).trades_filled)}`),
+  tile('时钟偏差估计',`${(s.clock||{}).last_offset_estimate_ms??'-'} ms`,`RTT ${(s.clock||{}).last_rtt_ms??'-'} ms · 跳变 ${(s.clock||{}).clock_jumps_detected??0}`),
+  tile('数据目录',fmtB((s.disk||{}).data_dir_bytes),`磁盘剩余 ${(s.disk||{}).free_gb} GB`),
+ ].join('');
+ const conns=Object.entries(s.connections||{});
+ $('#conns').innerHTML=tableHTML([
+  {h:'角色',f:r=>r[0]},{h:'状态',f:r=>r[1].state,cls:r=>r[1].state==='connected'?'ok':'degraded'},
+  {h:'重连',f:r=>fmtN(r[1].reconnects),num:1},{h:'轮换',f:r=>fmtN(r[1].rotations),num:1},
+  {h:'消息',f:r=>fmtN((r[1].current||{}).messages),num:1},{h:'队列丢弃',f:r=>fmtN((r[1].current||{}).queue_drops),num:1},
+  {h:'下次轮换',f:r=>r[1].next_rotation_in_s==null?'-':fmtN(r[1].next_rotation_in_s)+'s',num:1},
+ ],conns)+`<tbody>${conns.map(r=>`<tr><td colspan="7" class="muted mono">${r[0]}: ${Object.entries((r[1].current||{}).silent_s_by_stream||{}).map(([k,v])=>`${k} ${v}s`).join(' · ')||'-'}${r[1].last_error?' · 上次错误: '+esc(r[1].last_error):''}</td></tr>`).join('')}</tbody>`;
+ $('#symbols').innerHTML=Object.entries(s.symbols||{}).map(([sym,v])=>{
+  const b=v.book||{}; const st=b.state||'-';
+  const streams=['depth','aggTrade','markPrice'].map(k=>{const d=v[k]||{};const l=d.recv_minus_exchange_ms||{};
+   return `<tr><td>${k}</td><td class="num">${fmtN(d.received)}</td><td class="num">${fmtN(d.accepted)}</td><td class="num">${fmtN(d.duplicates)}</td><td class="num">${fmtN(d.old_or_out_of_order)}</td><td class="num ${d.parse_errors?'failed':''}">${fmtN(d.parse_errors)}</td><td class="num">${l.p50??'-'} / ${l.p95??'-'} / ${l.p99??'-'}</td><td class="num ${d.open_gaps?'degraded':''}">${fmtN(d.open_gaps)}</td><td class="muted">${ago(d.last_recv_time_ns)}</td></tr>`}).join('');
+  return `<div class="tile"><div class="row"><b>${sym}</b><span class="badge ${st==='LIVE'?'ok':st==='INVALID'?'failed':'degraded'}">${st}</span><span class="muted">epoch ${b.book_epoch} · 有效行 ${fmtN(b.rows_emitted)} · 重同步 ${b.resyncs} · pu断档 ${b.seq_gaps} · 交叉 ${b.crosses} · 覆盖失败 ${b.coverage_failures} · 快照失败 ${b.snapshots_failed} · 已知档位 ${(b.levels_known||{}).bids}/${(b.levels_known||{}).asks}</span></div>
+  <table><thead><tr><th>流</th><th class="num">收到</th><th class="num">接受</th><th class="num">重复</th><th class="num">乱序/过旧</th><th class="num">解析错</th><th class="num">recv−E ms P50/95/99</th><th class="num">未修复缺口</th><th>最后接收</th></tr></thead><tbody>${streams}</tbody></table></div>`}).join('');
+}
+
+/* ---------- charts ---------- */
+const tip=$('#tip');
+function showTip(e,html){tip.innerHTML=html;tip.style.display='block';tip.style.left=Math.min(e.clientX+12,innerWidth-260)+'px';tip.style.top=(e.clientY+12)+'px'}
+function hideTip(){tip.style.display='none'}
+function niceTicks(min,max,n){if(!(max>min))return[min];const span=max-min,step0=span/n,mag=10**Math.floor(Math.log10(step0)),r=step0/mag,step=(r<1.5?1:r<3.5?2:r<7.5?5:10)*mag,out=[];for(let v=Math.ceil(min/step)*step;v<=max+1e-9;v+=step)out.push(v);return out}
+function lineChart(el,pts,key,opts){
+ const W=el.clientWidth||800,H=opts.h||220,L=64,R=12,T=10,B=26;
+ if(!pts.length){el.innerHTML=`<div class="muted" style="padding:20px 0">无数据</div>`;return}
+ const xs=pts.map(p=>p.t),ys=pts.map(p=>p[key]);
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+ const pad=(y1-y0)*0.08||Math.abs(y0)*0.001||1;
+ const X=t=>L+(x1===x0?0:(t-x0)/(x1-x0))*(W-L-R),Y=v=>T+(1-(v-(y0-pad))/((y1+pad)-(y0-pad)))*(H-T-B);
+ const yt=niceTicks(y0-pad,y1+pad,4),xt=niceTicks(x0,x1,5);
+ // epoch 分段：不同 book_epoch 之间不连线（不把两个不可证明连续的阶段画成一条线）
+ let d='',prev=null;pts.forEach(p=>{d+=(prev&&prev.epoch===p.epoch?'L':'M')+X(p.t).toFixed(1)+' '+Y(p[key]).toFixed(1)+' ';prev=p});
+ const breaks=pts.filter((p,i)=>i&&pts[i-1].epoch!==p.epoch);
+ el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" class="chart">
+  <g class="axis">${yt.map(v=>`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L-6}" y="${Y(v)+3}" text-anchor="end">${opts.fmt(v)}</text>`).join('')}
+  ${xt.map(v=>`<text x="${X(v)}" y="${H-8}" text-anchor="middle">${new Date(v).toISOString().slice(11,19)}</text>`).join('')}</g>
+  ${breaks.map(p=>`<line x1="${X(p.t)}" x2="${X(p.t)}" y1="${T}" y2="${H-B}" stroke="var(--s2)" stroke-dasharray="3 3"/>`).join('')}
+  <path d="${d}" fill="none" stroke="${opts.color}" stroke-width="2" stroke-linejoin="round"/>
+  <line id="xh" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--text-3)" style="display:none"/><circle id="dot" r="4" fill="${opts.color}" stroke="var(--surface)" stroke-width="2" style="display:none"/>
+  <rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent"/></svg>
+  ${breaks.length?`<div class="muted">虚线 = book_epoch 切换（重同步），跨段不连线，共 ${breaks.length} 处</div>`:''}`;
+ const svg=el.querySelector('svg'),xh=svg.querySelector('#xh'),dot=svg.querySelector('#dot');
+ svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const mx=(e.clientX-r.left)*W/r.width;const t=x0+(mx-L)/(W-L-R)*(x1-x0);
+  let lo=0,hi=pts.length-1;while(lo<hi){const m=(lo+hi)>>1;if(pts[m].t<t)lo=m+1;else hi=m}const p=pts[lo];
+  xh.setAttribute('x1',X(p.t));xh.setAttribute('x2',X(p.t));xh.style.display='';dot.setAttribute('cx',X(p.t));dot.setAttribute('cy',Y(p[key]));dot.style.display='';
+  showTip(e,`<b>${fmtMs(p.t)}</b><br>${opts.label}: ${opts.fmt(p[key])}<br><span class="muted">epoch ${p.epoch} · u ${p.u}</span>`)});
+ svg.addEventListener('mouseleave',()=>{xh.style.display='none';dot.style.display='none';hideTip()});
+}
+function barChart(el,series,labels){
+ const W=el.clientWidth||400,H=200,L=44,R=8,T=8,B=24,colors=['var(--s1)','var(--s2)','var(--s3)'];
+ const keys=Object.keys(series),n=labels.length,max=Math.max(1,...keys.flatMap(k=>series[k]));
+ const gw=(W-L-R)/n,bw=Math.max(1,(gw-4)/keys.length-1);
+ const Y=v=>T+(1-v/max)*(H-T-B);const yt=niceTicks(0,max,4);
+ let bars='';labels.forEach((lab,i)=>keys.forEach((k,j)=>{const v=series[k][i];if(!v)return;const x=L+i*gw+2+j*(bw+1);
+  bars+=`<rect x="${x}" y="${Y(v)}" width="${bw}" height="${H-B-Y(v)}" fill="${colors[j]}" rx="1" data-t="${lab}" data-k="${k}" data-v="${v}"/>`}));
+ el.innerHTML=`<svg viewBox="0 0 ${W} ${H}"><g class="axis">${yt.map(v=>`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L-4}" y="${Y(v)+3}" text-anchor="end">${v>=1000?(v/1000)+'k':v}</text>`).join('')}
+  ${labels.map((l,i)=>i%3?'':`<text x="${L+i*gw+gw/2}" y="${H-8}" text-anchor="middle">${l}</text>`).join('')}</g>${bars}</svg>`;
+ el.querySelectorAll('rect').forEach(r=>{r.addEventListener('mousemove',e=>showTip(e,`<b>${r.dataset.t}:00 UTC</b><br>${r.dataset.k}: ${fmtN(r.dataset.v)} 行`));r.addEventListener('mouseleave',hideTip)});
+}
+async function loadSeries(){
+ const sym=$('#symSel').value,day=$('#daySel').value;
+ const s=await api(`/api/series?symbol=${sym}${day?'&day='+day:''}`);
+ $('#seriesInfo').textContent=s.points.length?`${fmtN(s.rows_total)} 行 · ${s.files} 个文件 · 抽样步长 ${s.step} · ${fmtMs(s.points[0].t)} → ${fmtMs(s.points.at(-1).t)}`:'无数据';
+ lineChart($('#midChart'),s.points,'mid',{color:'var(--s1)',label:'mid',fmt:v=>v.toFixed(2),h:220});
+ lineChart($('#spreadChart'),s.points,'spread',{color:'var(--s1)',label:'spread',fmt:v=>v.toFixed(2),h:120});
+ const hd=day||new Date().toISOString().slice(0,10).replace(/-/g,'');
+ const h=await api(`/api/hourly?symbol=${sym}&day=${hd}`);
+ barChart($('#hourlyChart'),h.hourly,[...Array(24).keys()].map(i=>String(i).padStart(2,'0')));
+ $('#hourlyInfo').textContent=`${h.day} ${sym} · 合计 book ${fmtN(h.hourly.book_top20.reduce((a,b)=>a+b,0))} · trades ${fmtN(h.hourly.agg_trades.reduce((a,b)=>a+b,0))} · mark ${fmtN(h.hourly.mark_price.reduce((a,b)=>a+b,0))}`;
+}
+async function loadBook(){
+ const sym=$('#symSel').value;
+ const b=await api(`/api/book?symbol=${sym}`);
+ if(!b.row){$('#bookMeta').textContent='无数据';$('#bids').innerHTML=$('#asks').innerHTML='';return}
+ $('#bookMeta').textContent=`${sym} · epoch ${b.row.book_epoch} · u ${b.row.u} · E ${fmtMs(b.row.E_ms)} · recv ${fmtNs(b.row.recv_time_ns)} (${ago(b.row.recv_time_ns)}) · 已知 ${b.row.n_bid_levels_known}/${b.row.n_ask_levels_known} 档`;
+ const mk=(side,rows)=>{const max=Math.max(...rows.map(r=>+r[1]),1e-9);return `<thead><tr><th>${side==='bid'?'买价':'卖价'}</th><th class="num">数量</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr><td class="${side} mono">${r[0]}</td><td class="num mono">${r[1]}</td><td style="width:35%"><div class="bar"><i style="width:${(+r[1]/max*100).toFixed(1)}%;background:var(--${side==='bid'?'s3':'s2'})"></i></div></td></tr>`).join('')}</tbody>`};
+ $('#bids').innerHTML=mk('bid',b.book.bids);$('#asks').innerHTML=mk('ask',b.book.asks);
+ const t=await api(`/api/trades?symbol=${sym}&n=40`);
+ $('#trades').innerHTML=tableHTML([
+  {h:'a',f:r=>r.a,num:1},{h:'成交时间 T',f:r=>fmtMs(r.T_ms)},{h:'价格',f:r=>r.p,num:1},{h:'数量 q',f:r=>r.q,num:1},{h:'nq',f:r=>r.nq??'-',num:1},
+  {h:'主动方',f:r=>r.aggressor_side==='buy'?'买':'卖',cls:r=>r.aggressor_side==='buy'?'bid':'ask'},{h:'来源',f:r=>r.source,cls:r=>r.source==='ws'?'':'degraded'},
+  {h:'接收',f:r=>r.recv_time_ns?ago(r.recv_time_ns):`<span class="muted">补数 · 获知 ${ago(r.known_time_ns)}</span>`}],t.trades);
+}
+async function loadInventory(){
+ const inv=await api('/api/inventory');
+ cfgSymbols=inv.symbols||cfgSymbols;
+ const symSel=$('#symSel');if(!symSel.options.length){symSel.innerHTML=cfgSymbols.map(s=>`<option>${s}</option>`).join('')}
+ const daySel=$('#daySel');const cur=daySel.value;daySel.innerHTML='<option value="">最近 12 个文件</option>'+inv.days.slice().reverse().map(d=>`<option ${d===cur?'selected':''}>${d}</option>`).join('');
+ $('#rawInfo').textContent='raw 层: '+Object.entries(inv.raw).map(([k,v])=>`${k} ${v.files} 文件 ${fmtB(v.size)}${v.active_uncompressed?` (${v.active_uncompressed} 活动)`:''}`).join(' · ');
+ const rows=[];for(const [table,syms] of Object.entries(inv.tables))for(const [sym,v] of Object.entries(syms))for(const [day,d] of Object.entries(v.days))rows.push({table,sym,day,...d});
+ rows.sort((a,b)=>a.table.localeCompare(b.table)||a.sym.localeCompare(b.sym)||b.day.localeCompare(a.day));
+ $('#inventory').innerHTML=tableHTML([
+  {h:'表',f:r=>r.table},{h:'交易对',f:r=>r.sym},{h:'UTC 日期',f:r=>r.day},{h:'文件',f:r=>fmtN(r.files),num:1},{h:'行数',f:r=>fmtN(r.rows),num:1},{h:'大小',f:r=>fmtB(r.size),num:1},
+  {h:'最早',f:r=>fmtNs(r.t_min)},{h:'最晚',f:r=>fmtNs(r.t_max)},{h:'跨度',f:r=>r.t_min&&r.t_max?((r.t_max-r.t_min)/3.6e12).toFixed(2)+' h':'-',num:1},{h:'读取错误',f:r=>r.errors||'',cls:r=>r.errors?'failed':''}],rows);
+}
+async function loadGaps(){
+ const g=await api('/api/gaps');const f=$('#gapFilter').value;
+ $('#gapSummary').textContent=`共 ${g.total} 个 gap · `+Object.entries(g.summary).filter(([k])=>!k.startsWith('kind:')).map(([k,v])=>`${k} ${v}`).join(' · ');
+ const rows=g.gaps.filter(r=>!f||r.repair_status===f);
+ $('#gaps').innerHTML=tableHTML([
+  {h:'检测时间',f:r=>fmtNs(r.detected_time_ns)},{h:'交易对',f:r=>r.symbol},{h:'流',f:r=>r.stream},{h:'类型',f:r=>r.kind},{h:'确定性',f:r=>r.certainty,cls:r=>r.certainty==='certain'?'':'muted'},
+  {h:'状态',f:r=>r.repair_status,cls:r=>({open:'degraded',unrepairable:'failed',partial:'degraded',repaired:'ok'})[r.repair_status]||'muted'},
+  {h:'起',f:r=>fmtNs(r.start_time_ns)},{h:'止',f:r=>fmtNs(r.end_time_ns)},{h:'prev→next id',f:r=>`${r.prev_known_id??'-'} → ${r.next_known_id??'-'}`},{h:'原因/说明',f:r=>`<span title="${esc(r.note)}">${esc(r.reason)} <span class="muted">${esc((r.note||'').slice(0,80))}</span></span>`}],rows);
+}
+async function loadQuality(){
+ const sev=$('#sevFilter').value;const q=await api(`/api/quality?limit=120${sev?'&severity='+sev:''}`);
+ $('#quality').innerHTML=tableHTML([{h:'时间',f:r=>fmtNs(r.time_ns)},{h:'交易对',f:r=>r.symbol},{h:'流',f:r=>r.stream},{h:'事件',f:r=>r.event_type,cls:r=>'sev-'+r.severity},{h:'详情',f:r=>`<span class="muted mono" title="${esc(r.detail)}">${esc(r.detail).slice(0,90)}</span>`}],q.events);
+}
+async function loadReports(){
+ const r=await api('/api/reports');const sel=$('#reportSel');const cur=sel.value;
+ sel.innerHTML=r.reports.map(x=>`<option ${x.day===cur?'selected':''}>${x.day}</option>`).join('');
+ if(sel.value){$('#report').textContent=await (await fetch('/api/report/'+sel.value,{cache:'no-store'})).text()}
+}
+async function refreshFast(){try{await loadStatus()}catch(e){$('#health').textContent='API 错误: '+e.message;$('#health').className='badge failed'}
+ try{await loadBook()}catch(e){console.error(e)}}
+async function refreshSlow(){for(const f of [loadInventory,loadSeries,loadGaps,loadQuality,loadReports]){try{await f()}catch(e){console.error(f.name,e)}}}
+(async()=>{await loadInventory();await refreshFast();await refreshSlow();})();
+setInterval(()=>{if($('#auto').checked)refreshFast()},5000);
+setInterval(()=>{if($('#auto').checked)refreshSlow()},30000);
+$('#refresh').onclick=()=>{refreshFast();refreshSlow()};
+$('#symSel').onchange=()=>{loadBook();loadSeries()};$('#daySel').onchange=loadSeries;
+$('#gapFilter').onchange=loadGaps;$('#sevFilter').onchange=loadQuality;$('#reportSel').onchange=loadReports;
+</script>
+</body>
+</html>

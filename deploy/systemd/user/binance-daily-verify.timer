@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verify+replay of the previous UTC day
+
+[Timer]
+# UTC 00:40 = 昨天的日切分片已全部关闭并压缩
+OnCalendar=*-*-* 00:40:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>回测结果</title>
+<style>
+:root{color-scheme:light;
+ --surface:#fcfcfb;--surface-2:#f0efec;--border:#dddcd7;--text:#0b0b0b;--text-2:#52514e;--text-3:#7a7974;
+ --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;
+ --ok:#008300;--warn:#eda100;--critical:#e34948;--grid:#e6e5e1}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;
+ --surface:#1a1a19;--surface-2:#242423;--border:#383835;--text:#fff;--text-2:#c3c2b7;--text-3:#8f8e86;
+ --s1:#3987e5;--s2:#d95926;--s3:#199e70;--ok:#4fbf4f;--warn:#c98500;--critical:#e66767;--grid:#2e2e2c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface);color:var(--text);font:13px/1.45 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2}
+h1{font-size:15px;margin:0;font-weight:600}
+h2{font-size:13px;margin:0 0 8px;color:var(--text-2);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+a{color:var(--s1)}
+main{padding:12px 16px;display:grid;gap:14px;grid-template-columns:repeat(12,1fr)}
+section{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;grid-column:span 12;overflow:auto}
+.c6{grid-column:span 6}.c4{grid-column:span 4}.c8{grid-column:span 8}
+@media (max-width:1100px){.c6,.c4,.c8{grid-column:span 12}}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.tile{background:var(--surface-2);border-radius:6px;padding:8px 10px}
+.tile .k{color:var(--text-3);font-size:11px}
+.tile .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .s{color:var(--text-2);font-size:11px}
+.pos{color:var(--ok)}.neg{color:var(--critical)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{color:var(--text-3);font-weight:500;font-size:11px}
+td.num,th.num{text-align:right}
+.muted{color:var(--text-3)}.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+select,button,input{font:inherit;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:4px 8px}
+button{cursor:pointer}
+svg{display:block;width:100%;height:auto}
+.axis text{fill:var(--text-3);font-size:10px}.axis line{stroke:var(--grid)}
+.note{background:var(--surface-2);border-left:3px solid var(--warn);padding:8px 10px;border-radius:0 6px 6px 0;color:var(--text-2)}
+#tip{position:fixed;display:none;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;pointer-events:none;z-index:9;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+</style>
+</head>
+<body>
+<header>
+ <h1>回测结果</h1>
+ <select id="rep"></select>
+ <label><input type="checkbox" id="auto" checked> 自动刷新 30s</label>
+ <span id="stamp" class="muted"></span>
+ <a href="/">← 采集监控</a>
+</header>
+<main>
+ <section><h2>净值与成本</h2><div class="tiles" id="kpi"></div><div id="warn"></div></section>
+ <section class="c8"><h2>累计净收益（bps，按每单结算时刻）</h2><div id="eq"></div></section>
+ <section class="c4"><h2>模型系数（标准化空间）</h2><div id="coef"></div></section>
+ <section class="c6"><h2>信号分布（测试集预测 bps）</h2><div id="sig"></div></section>
+ <section class="c6"><h2>每单净收益分布（bps，已扣手续费）</h2><div id="ret"></div></section>
+ <section class="c6"><h2>各折毛收益（每折独立选参，测试段只用一次）</h2><div id="dec"></div></section>
+ <section class="c6"><h2>各折选参与结果</h2><div id="sweep"></div></section>
+ <section><h2>交易日志（逐单明细，最近 200 单，最新在上）</h2><div id="trades"></div></section>
+ <section><h2>参数与样本切分</h2><div id="meta"></div></section>
+</main>
+<div id="tip"></div>
+<script>
+const $=s=>document.querySelector(s);
+const api=async p=>{const r=await fetch(p,{cache:'no-store'});if(!r.ok)throw new Error(p+' '+r.status);return r.json()};
+const n2=(v,d=2)=>v==null||!isFinite(v)?'—':v.toFixed(d);
+const sgn=(v,d=2)=>v==null||!isFinite(v)?'—':(v>=0?'+':'')+v.toFixed(d);
+const cls=v=>v==null?'':v>0?'pos':v<0?'neg':'';
+const hhmmss=ms=>new Date(ms).toISOString().slice(11,19);
+const tip=$('#tip');
+function showTip(e,html){tip.innerHTML=html;tip.style.display='block';tip.style.left=Math.min(e.clientX+12,innerWidth-260)+'px';tip.style.top=(e.clientY+12)+'px'}
+function hideTip(){tip.style.display='none'}
+function tile(k,v,s,c){return `<div class="tile"><div class="k">${k}</div><div class="v ${c||''}">${v}</div><div class="s">${s??''}</div></div>`}
+function tableHTML(cols,rows){return `<table><thead><tr>${cols.map(c=>`<th class="${c.num?'num':''}">${c.h}</th>`).join('')}</tr></thead><tbody>${rows.map((r,i)=>`<tr>${cols.map(c=>`<td class="${c.num?'num':''} ${c.cls?c.cls(r):''}">${c.f(r,i)}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
+function niceTicks(min,max,n){if(!(max>min))return[min];const span=max-min,step0=span/n,mag=10**Math.floor(Math.log10(step0)),r=step0/mag,step=(r<1.5?1:r<3.5?2:r<7.5?5:10)*mag,out=[];for(let v=Math.ceil(min/step)*step;v<=max+1e-9;v+=step)out.push(v);return out}
+</script>
+<script>
+/* ---------- 图表：纯 SVG，无外部依赖 ---------- */
+function lineChart(el,pts,opts){
+ const W=760,H=opts.h||220,L=48,R=10,T=10,B=24;
+ if(!pts.length){el.innerHTML='<p class="muted">没有数据</p>';return}
+ const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y);
+ let x0=Math.min(...xs),x1=Math.max(...xs); if(x1===x0)x1=x0+1;
+ let y0=Math.min(0,...ys),y1=Math.max(0,...ys); if(y1===y0)y1=y0+1;
+ const pad=(y1-y0)*0.08; y0-=pad; y1+=pad;
+ const X=v=>L+(v-x0)/(x1-x0)*(W-L-R), Y=v=>T+(1-(v-y0)/(y1-y0))*(H-T-B);
+ const d=pts.map((p,i)=>(i?'L':'M')+X(p.x).toFixed(1)+' '+Y(p.y).toFixed(1)).join(' ');
+ const yt=niceTicks(y0,y1,5),xt=niceTicks(x0,x1,5);
+ el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">
+  <g class="axis">${yt.map(v=>`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L-5}" y="${Y(v)+3}" text-anchor="end">${(+v.toFixed(2))}</text>`).join('')}
+  ${xt.map(v=>`<text x="${X(v)}" y="${H-6}" text-anchor="middle">${opts.xfmt?opts.xfmt(v):(+v.toFixed(1))}</text>`).join('')}</g>
+  <line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--text-3)" stroke-dasharray="2 2"/>
+  <path d="${d}" fill="none" stroke="var(--s1)" stroke-width="1.6"/>
+  <line id="xh" y1="${T}" y2="${H-B}" stroke="var(--text-3)" style="display:none"/>
+  <circle id="dot" r="3" fill="var(--s1)" style="display:none"/>
+  <rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent"/></svg>`;
+ const svg=el.querySelector('svg'),xh=svg.querySelector('#xh'),dot=svg.querySelector('#dot');
+ svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const mx=(e.clientX-r.left)*W/r.width;
+  const t=x0+(mx-L)/(W-L-R)*(x1-x0);let best=pts[0];for(const p of pts)if(Math.abs(p.x-t)<Math.abs(best.x-t))best=p;
+  xh.setAttribute('x1',X(best.x));xh.setAttribute('x2',X(best.x));xh.style.display='';
+  dot.setAttribute('cx',X(best.x));dot.setAttribute('cy',Y(best.y));dot.style.display='';
+  showTip(e,opts.tip?opts.tip(best):`${n2(best.y,3)}`)});
+ svg.addEventListener('mouseleave',()=>{xh.style.display='none';dot.style.display='none';hideTip()});
+}
+function histChart(el,bins,opts){
+ const W=760,H=opts.h||200,L=44,R=10,T=10,B=26;
+ if(!bins||!bins.length){el.innerHTML='<p class="muted">没有数据</p>';return}
+ const xs=bins.map(b=>b.x),mx=Math.max(...bins.map(b=>b.n))||1;
+ let x0=Math.min(...xs),x1=Math.max(...xs); if(x1===x0){x0-=1;x1+=1}
+ const gw=(W-L-R)/bins.length;
+ const X=v=>L+(v-x0)/(x1-x0)*(W-L-R), Y=v=>T+(1-v/mx)*(H-T-B);
+ const thr=opts.thr;
+ const bars=bins.map((b,i)=>{const h=(H-T-B)*(b.n/mx);const color=opts.color?opts.color(b):'var(--s1)';
+  return `<rect x="${(L+i*gw+0.5).toFixed(1)}" y="${(H-B-h).toFixed(1)}" width="${(gw-1).toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" data-i="${i}"/>`}).join('');
+ const yt=niceTicks(0,mx,4),xt=niceTicks(x0,x1,6);
+ el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">
+  <g class="axis">${yt.map(v=>`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L-5}" y="${Y(v)+3}" text-anchor="end">${v>=1000?(v/1000)+'k':v}</text>`).join('')}
+  ${xt.map(v=>`<text x="${X(v)}" y="${H-8}" text-anchor="middle">${(+v.toFixed(2))}</text>`).join('')}</g>
+  ${bars}
+  <line x1="${X(0)}" x2="${X(0)}" y1="${T}" y2="${H-B}" stroke="var(--text-3)" stroke-dasharray="2 2"/>
+  ${thr!=null&&thr>x0&&thr<x1?`<line x1="${X(thr)}" x2="${X(thr)}" y1="${T}" y2="${H-B}" stroke="var(--s3)"/><line x1="${X(-thr)}" x2="${X(-thr)}" y1="${T}" y2="${H-B}" stroke="var(--s3)"/>`:''}
+  </svg>`;
+ el.querySelectorAll('rect[data-i]').forEach(r=>{const b=bins[+r.dataset.i];
+  r.addEventListener('mousemove',e=>showTip(e,`${opts.label||'值'} ${n2(b.x,3)}<br>${b.n} 个`));
+  r.addEventListener('mouseleave',hideTip)});
+}
+function groupBars(el,items,opts){
+ const W=760,H=opts.h||200,L=48,R=10,T=10,B=26;
+ if(!items.length){el.innerHTML='<p class="muted">没有数据</p>';return}
+ const vals=items.flatMap(o=>opts.series.map(s=>o[s.key]??0));
+ let y0=Math.min(0,...vals),y1=Math.max(0,...vals); if(y1===y0)y1=y0+1;
+ const pad=(y1-y0)*.08; y0-=pad; y1+=pad;
+ const Y=v=>T+(1-(v-y0)/(y1-y0))*(H-T-B), gw=(W-L-R)/items.length, bw=gw/(opts.series.length+0.6);
+ const bars=items.map((o,i)=>opts.series.map((s,j)=>{const v=o[s.key]??0,y=Y(Math.max(v,0)),h=Math.abs(Y(v)-Y(0));
+  return `<rect x="${(L+i*gw+j*bw+bw*0.3).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*0.9).toFixed(1)}" height="${Math.max(h,0.5).toFixed(1)}" fill="${s.color}" data-i="${i}" data-j="${j}"/>`}).join('')).join('');
+ const yt=niceTicks(y0,y1,5);
+ el.innerHTML=`<div class="row muted">${opts.series.map(s=>`<span><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:2px"></span> ${s.name}</span>`).join('')}</div>
+  <svg viewBox="0 0 ${W} ${H}">
+  <g class="axis">${yt.map(v=>`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L-5}" y="${Y(v)+3}" text-anchor="end">${(+v.toFixed(2))}</text>`).join('')}
+  ${items.map((o,i)=>`<text x="${L+i*gw+gw/2}" y="${H-8}" text-anchor="middle">${opts.xlab(o,i)}</text>`).join('')}</g>
+  <line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--text-3)"/>${bars}</svg>`;
+ el.querySelectorAll('rect[data-i]').forEach(r=>{const o=items[+r.dataset.i],s=opts.series[+r.dataset.j];
+  r.addEventListener('mousemove',e=>showTip(e,`${opts.xlab(o,+r.dataset.i)}<br>${s.name} ${n2(o[s.key],4)}`));
+  r.addEventListener('mouseleave',hideTip)});
+}
+</script>
+<script>
+/* ---------- 渲染 ---------- */
+let REP=null;
+function renderKPI(r){
+ const b=r.backtest,p=r.params,w=r.walk_forward,cost=2*p.taker_bps;
+ $('#kpi').innerHTML=[
+  tile('每单净收益',sgn(b.net_bps_mean,3)+' bps','扣双边手续费后',cls(b.net_bps_mean)),
+  tile('每单毛收益',sgn(b.gross_bps_mean,3)+' bps','逐档吃单价差已含',cls(b.gross_bps_mean)),
+  tile('往返成本',cost.toFixed(1)+' bps',`taker ${p.taker_bps} bps × 2`),
+  tile('夏普（每单）',sgn(b.sharpe_per_trade,3),`年化 ${sgn(b.sharpe_annual,0)}，按 ${n2(b.trades_per_day,0)} 单/日`,cls(b.sharpe_per_trade)),
+  tile('净胜率',b.n_trades?(b.hit_rate*100).toFixed(1)+'%':'—',`毛胜率 ${b.n_trades?(b.gross_hit_rate*100).toFixed(1)+'%':'—'}`),
+  tile('成交单数',b.n_trades,`信号 ${b.n_signals}，持仓中跳过 ${b.skipped?.in_position??0}`),
+  tile('最大回撤',n2(b.max_drawdown_bps,1)+' bps','累计净收益的回落深度'),
+  tile('相关系数',sgn(w.ic_mean,4),`${w.ic_positive_folds}/${w.ic_folds} 段为正，各段平均`,cls(w.ic_mean)),
+ ].join('');
+ const need=cost, got=b.gross_bps_mean;
+ const msgs=[];
+ if(b.n_trades&&got<need)msgs.push(`毛收益 ${n2(got,3)} bps 低于吃单往返成本 ${need.toFixed(1)} bps，吃单打法结构性亏损。挂单往返 ${n2(r.cost.maker_roundtrip_bps,1)} bps 仍差 ${n2(r.cost.maker_roundtrip_bps-got,3)} bps，且排队与不成交尚未模拟。`);
+ if(w.ic_positive_folds<w.ic_folds)msgs.push(`${w.ic_folds} 段里只有 ${w.ic_positive_folds} 段相关系数为正，信号在部分时段失效。`);
+ if(b.skipped&&b.skipped.stale_book)msgs.push(`${b.skipped.stale_book} 单因成交时刻盘口过期被跳过（断线缺口），未计入收益。`);
+ $('#warn').innerHTML=msgs.length?`<div class="note" style="margin-top:10px">${msgs.join('<br>')}</div>`:'';
+}
+function horizonLabel(p){return (p.horizon_ms/1000)+'s'}
+function renderEquity(r){
+ const pts=r.equity.map(e=>({x:e.t,y:e.cum_bps,e}));
+ lineChart($('#eq'),pts,{h:240,xfmt:v=>hhmmss(v),
+  tip:b=>`${hhmmss(b.e.t)}<br>累计 ${sgn(b.e.cum_bps,2)} bps<br>本单 ${sgn(b.e.net_bps,3)} bps ${b.e.side>0?'买入':'卖出'}<br>预测 ${sgn(b.e.pred_bps,3)} bps`});
+}
+function renderHists(r){
+ const thr=r.params.enter_bps;
+ histChart($('#sig'),r.signal_hist,{label:'预测',thr:thr,
+  color:b=>Math.abs(b.x)>=thr?(b.x>0?'var(--s3)':'var(--s2)'):'var(--surface-2)'});
+ histChart($('#ret'),r.ret_hist,{label:'净收益',color:b=>b.x>0?'var(--s3)':'var(--critical)'});
+}
+function renderDeciles(r){
+ groupBars($('#dec'),r.folds,{h:210,xlab:(o,i)=>'折'+(i+1),
+  series:[{key:'mean_bps',name:'每笔毛收益 bps',color:'var(--s3)'},{key:'ic',name:'相关系数',color:'var(--s1)'}]});
+}
+function renderSweep(r){
+ $('#sweep').innerHTML=tableHTML([
+  {h:'折',num:1,f:(o,i)=>i+1},
+  {h:'惩罚 α',num:1,f:o=>o.alpha},
+  {h:'分位',num:1,f:o=>o.quantile},
+  {h:'阈值 bps',num:1,f:o=>n2(o.enter_bps,3)},
+  {h:'训练',num:1,f:o=>o.n_train.toLocaleString()},
+  {h:'笔数',num:1,f:o=>o.n_trades},
+  {h:'每笔 bps',num:1,f:o=>sgn(o.mean_bps,3),cls:o=>cls(o.mean_bps)},
+  {h:'命中',num:1,f:o=>o.hit_rate==null?'—':(o.hit_rate*100).toFixed(1)+'%'},
+  {h:'相关系数',num:1,f:o=>sgn(o.ic,4),cls:o=>cls(o.ic)},
+ ],r.folds)+`<p class="muted" style="margin:8px 0 0">α 和分位都在每折训练段内部选，测试段不参与，所以各折可以不同。
+ 「每笔 bps」是中价到中价、不含延迟的口径，和上方回测表的毛收益差额就是延迟与真实成交价的代价。</p>`;
+}
+function renderCoefs(r){
+ const rows=Object.entries(r.model.coefs).map(([k,v])=>({k,v}));
+ $('#coef').innerHTML=tableHTML([
+  {h:'特征',f:o=>o.k},
+  {h:'系数 bps',num:1,f:o=>sgn(o.v,4),cls:o=>cls(o.v)},
+ ],rows)+`<p class="muted" style="margin:8px 0 0">截距 ${sgn(r.model.intercept,4)} bps。系数在标准化空间，可直接比大小。</p>`;
+}
+function renderTrades(r){
+ const rows=r.equity.slice(-200).reverse();
+ $('#trades').innerHTML=tableHTML([
+  {h:'结算时刻 UTC',f:o=>`<span class="mono">${hhmmss(o.t)}</span>`},
+  {h:'方向',f:o=>o.side>0?'买入':'卖出',cls:o=>o.side>0?'pos':'neg'},
+  {h:'预测 bps',num:1,f:o=>sgn(o.pred_bps,3)},
+  {h:'净收益 bps',num:1,f:o=>sgn(o.net_bps,3),cls:o=>cls(o.net_bps)},
+  {h:'累计 bps',num:1,f:o=>sgn(o.cum_bps,2),cls:o=>cls(o.cum_bps)},
+ ],rows)+`<p class="muted" style="margin:8px 0 0">共 ${r.equity.length} 单，表中显示最近 200 单，最新在上。</p>`;
+}
+function renderMeta(r){
+ const p=r.params,d=r.dataset,b=r.backtest;
+ const rows=[
+  ['标的 / 日期',`${r.symbol}  ${r.start_day} → ${r.end_day}`],
+  ['预测期限 / 采样步长',`${p.horizon_ms} ms / ${p.step_ms} ms`],
+  ['下单延迟',`${p.delay_ms} ms（信号后这么久才用当时盘口成交）`],
+  ['下单数量',`${p.size}（逐档吃单，20 档吃不下则跳过）`],
+  ['手续费',`单边 ${p.taker_bps} bps taker`],
+  ['进场阈值',`${n2(p.enter_bps,3)} bps（${p.enter_bps_source}）`],
+  ['惩罚 α / 候选',`${p.alpha}（候选 ${p.alpha_grid.join(' / ')}，逐折选）`],
+  ['分位候选',p.quantile_grid.join(' / ')],
+  ['样本数 / 切分',`${d.rows.toLocaleString()}  切 ${d.split.folds} 段，每段平均训练 ${d.split.train.toLocaleString()}、测试合计 ${d.split.test.toLocaleString()}`],
+  ['特征窗口',`${p.windows_ms.map(v=>v/1000+'s').join(' / ')}`],
+  ['标签波动 (std)',`${n2(d.y_bps_std,4)} bps`],
+  ['数据时间跨度',`${n2(d.span.hours,2)} 小时`],
+  ['回测时间跨度',`${n2(b.span_hours,2)} 小时`],
+  ['特征',d.features.join(', ')],
+  ['报告生成时间',r.generated_at],
+ ];
+ $('#meta').innerHTML=tableHTML([{h:'项',f:o=>o[0]},{h:'值',f:o=>`<span class="mono">${o[1]}</span>`}],rows);
+}
+async function loadList(){
+ const d=await api('/api/bt/list');
+ const sel=$('#rep'),cur=sel.value;
+ sel.innerHTML=(d.reports||[]).map(o=>`<option value="${o.name}">${o.name}</option>`).join('');
+ if(!d.reports||!d.reports.length){
+  document.querySelector('main').innerHTML=`<section><div class="note">${d.note||'还没有回测报告'}</div></section>`;
+  return false}
+ if(cur&&[...sel.options].some(o=>o.value===cur))sel.value=cur;
+ return true;
+}
+async function loadReport(){
+ const name=$('#rep').value; if(!name)return;
+ REP=await api('/api/bt/report/'+encodeURIComponent(name));
+ renderKPI(REP);renderEquity(REP);renderCoefs(REP);renderHists(REP);
+ renderDeciles(REP);renderSweep(REP);renderTrades(REP);renderMeta(REP);
+ $('#stamp').textContent='报告生成于 '+REP.generated_at;
+}
+$('#rep').addEventListener('change',()=>loadReport().catch(e=>alert(e.message)));
+async function refresh(){if(await loadList())await loadReport()}
+setInterval(()=>{if($('#auto').checked)refresh().catch(e=>console.error(e))},30000);
+refresh().catch(e=>{document.querySelector('main').innerHTML=`<section><div class="note">加载失败：${e.message}</div></section>`});
+</script>
+</body>
+</html>

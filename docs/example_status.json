@@ -1,0 +1,380 @@
+{
+ "time_ns": 1790365235450650357,
+ "session_id": "20260925T193944Z-1e3d17",
+ "uptime_s": 51,
+ "health": {
+  "level": "degraded",
+  "reasons": [
+   "conn_public_stopped",
+   "conn_market_stopped"
+  ],
+  "stop_reason": "run_seconds_elapsed"
+ },
+ "connections": {
+  "public": {
+   "role": "public",
+   "state": "stopped",
+   "reconnects": 0,
+   "rotations": 0,
+   "last_error": "",
+   "current": {
+    "connection_id": "public-9a8bf17e2d",
+    "opened_time_ns": 1790365185899406178,
+    "messages": 866,
+    "bytes": 2289479,
+    "parse_errors": 0,
+    "queue_drops": 0,
+    "msg_by_stream": {
+     "btcusdt@depth@100ms": 434,
+     "ethusdt@depth@100ms": 432
+    },
+    "silent_s_by_stream": {
+     "btcusdt@depth@100ms": 5.3,
+     "ethusdt@depth@100ms": 5.4
+    }
+   },
+   "next_rotation_in_s": 77396
+  },
+  "market": {
+   "role": "market",
+   "state": "stopped",
+   "reconnects": 0,
+   "rotations": 0,
+   "last_error": "",
+   "current": {
+    "connection_id": "market-62dc568574",
+    "opened_time_ns": 1790365185891568008,
+    "messages": 1673,
+    "bytes": 342418,
+    "parse_errors": 0,
+    "queue_drops": 0,
+    "msg_by_stream": {
+     "btcusdt@markPrice@1s": 45,
+     "ethusdt@markPrice@1s": 44,
+     "btcusdt@aggTrade": 771,
+     "ethusdt@aggTrade": 813
+    },
+    "silent_s_by_stream": {
+     "btcusdt@markPrice@1s": 5.2,
+     "ethusdt@markPrice@1s": 6.2,
+     "btcusdt@aggTrade": 5.9,
+     "ethusdt@aggTrade": 6.1
+    }
+   },
+   "next_rotation_in_s": 78379
+  }
+ },
+ "pipeline": {
+  "queue_size": 0,
+  "queue_max": 200000,
+  "queue_overflow_total": 0,
+  "messages_dispatched": 2539,
+  "dispatch_lag_ms": 5001.14,
+  "overflow_total": 0,
+  "ops_done": 5105,
+  "error": null,
+  "error_time_ns": null,
+  "raw_records_written": 2559,
+  "raw_bytes_written": 5363725,
+  "raw_records_fsynced": 2559,
+  "raw_active_files": [],
+  "raw_closed_shards": 10,
+  "normalized_pending": 0,
+  "normalized_rows": {
+   "book_top20": 857,
+   "agg_trades": 1584,
+   "mark_price": 89,
+   "gaps": 6,
+   "quality_events": 6
+  },
+  "writer_lag_s": 0.234,
+  "alive": false,
+  "writer_queue_size": 1,
+  "writer_queue_max": 200000
+ },
+ "symbols": {
+  "BTCUSDT": {
+   "book": {
+    "state": "LIVE",
+    "book_epoch": 1,
+    "last_u": 11659346820281,
+    "last_valid_recv_time_ns": 1790365230107221423,
+    "rows_emitted": 431,
+    "levels_known": {
+     "bids": 2505,
+     "asks": 2507
+    },
+    "coverage_bounded": {
+     "bid": true,
+     "ask": true
+    },
+    "buffered_events": 0,
+    "snapshots_requested": 1,
+    "snapshots_failed": 0,
+    "resyncs": 1,
+    "recoveries": 0,
+    "dropped_old_before_snapshot": 3,
+    "seq_gaps": 0,
+    "crosses": 0,
+    "conflicts": 0,
+    "coverage_failures": 0,
+    "buffer_overflows": 0,
+    "stale_transitions": 0,
+    "in_gap": null
+   },
+   "depth": {
+    "received": 434,
+    "accepted": 431,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365185940176975,
+    "last_recv_time_ns": 1790365230107221423,
+    "last_exchange_time_ms": 1790365229963,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_unrepairable": 1
+    },
+    "open_gaps": 0,
+    "events": {
+     "state_live": 1
+    },
+    "recv_minus_exchange_ms": {
+     "p50": 144.87,
+     "p95": 149.16,
+     "p99": 353.06,
+     "n": 434,
+     "min": 143.95,
+     "max": 473.62
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "aggTrade": {
+    "received": 771,
+    "accepted": 771,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365186294760214,
+    "last_recv_time_ns": 1790365229543749529,
+    "last_exchange_time_ms": 1790365229400,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_open": 1
+    },
+    "open_gaps": 1,
+    "events": {},
+    "recv_minus_exchange_ms": {
+     "p50": 365.68,
+     "p95": 691.89,
+     "p99": 707.07,
+     "n": 771,
+     "min": 142.7,
+     "max": 707.28
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "markPrice": {
+    "received": 45,
+    "accepted": 45,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365186203058401,
+    "last_recv_time_ns": 1790365230209058607,
+    "last_exchange_time_ms": 1790365230000,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_unrepairable": 1
+    },
+    "open_gaps": 0,
+    "events": {},
+    "recv_minus_exchange_ms": {
+     "p50": 201.06,
+     "p95": 211.25,
+     "p99": 221.42,
+     "n": 45,
+     "min": 192.38,
+     "max": 221.42
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "trade_pending_gaps": 0
+  },
+  "ETHUSDT": {
+   "book": {
+    "state": "LIVE",
+    "book_epoch": 1,
+    "last_u": 11659346817372,
+    "last_valid_recv_time_ns": 1790365230061123052,
+    "rows_emitted": 426,
+    "levels_known": {
+     "bids": 2533,
+     "asks": 2487
+    },
+    "coverage_bounded": {
+     "bid": true,
+     "ask": true
+    },
+    "buffered_events": 0,
+    "snapshots_requested": 1,
+    "snapshots_failed": 0,
+    "resyncs": 1,
+    "recoveries": 0,
+    "dropped_old_before_snapshot": 6,
+    "seq_gaps": 0,
+    "crosses": 0,
+    "conflicts": 0,
+    "coverage_failures": 0,
+    "buffer_overflows": 0,
+    "stale_transitions": 0,
+    "in_gap": null
+   },
+   "depth": {
+    "received": 432,
+    "accepted": 426,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365186005830443,
+    "last_recv_time_ns": 1790365230061123052,
+    "last_exchange_time_ms": 1790365229917,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_unrepairable": 1
+    },
+    "open_gaps": 0,
+    "events": {
+     "state_live": 1
+    },
+    "recv_minus_exchange_ms": {
+     "p50": 144.71,
+     "p95": 147.89,
+     "p99": 275.45,
+     "n": 432,
+     "min": 143.91,
+     "max": 401.33
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "aggTrade": {
+    "received": 813,
+    "accepted": 813,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365186628694371,
+    "last_recv_time_ns": 1790365229382435712,
+    "last_exchange_time_ms": 1790365229237,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_open": 1
+    },
+    "open_gaps": 1,
+    "events": {},
+    "recv_minus_exchange_ms": {
+     "p50": 227.11,
+     "p95": 694.73,
+     "p99": 706.3,
+     "n": 813,
+     "min": 142.7,
+     "max": 707.29
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "markPrice": {
+    "received": 44,
+    "accepted": 44,
+    "duplicates": 0,
+    "old_or_out_of_order": 0,
+    "parse_errors": 0,
+    "invalid_values": 0,
+    "first_recv_time_ns": 1790365186203117709,
+    "last_recv_time_ns": 1790365229200930024,
+    "last_exchange_time_ms": 1790365229003,
+    "extra": {},
+    "gaps": {
+     "downtime": 1,
+     "status_unrepairable": 1
+    },
+    "open_gaps": 0,
+    "events": {},
+    "recv_minus_exchange_ms": {
+     "p50": 201.18,
+     "p95": 211.84,
+     "p99": 221.47,
+     "n": 44,
+     "min": 192.42,
+     "max": 221.47
+    },
+    "latency_note": "recv_time(本机) - E(交易所)，含时钟偏差与处理排队，不是单向网络延迟",
+    "longest_gap": null
+   },
+   "trade_pending_gaps": 0
+  }
+ },
+ "clock": {
+  "samples": 1,
+  "last_sent_time_ns": 1790365184787160780,
+  "last_rtt_ms": 291.764,
+  "last_offset_estimate_ms": 0.957,
+  "offset_median_ms_recent": 0.957,
+  "rtt_min_ms_recent": 291.764,
+  "clock_jumps_detected": 0,
+  "note": "offset = server - local，按 RTT/2 粗估，不是精确单向延迟"
+ },
+ "rest": {
+  "requests": 4,
+  "errors": 0,
+  "rate_limited": 0,
+  "retries": 0,
+  "budget_wait_s": 0.0,
+  "weight_used_1m": 119,
+  "forbidden": null
+ },
+ "backfill": {
+  "gaps_seen": 0,
+  "gaps_repaired": 0,
+  "gaps_partial": 0,
+  "gaps_unrepairable": 0,
+  "pages": 0,
+  "trades_filled": 0,
+  "errors": 0,
+  "current": null
+ },
+ "disk": {
+  "free_gb": 155.91,
+  "data_dir_bytes": 4744500
+ },
+ "specs": {
+  "version": "3438f89537f50873",
+  "time_ns": 1790365184760209484,
+  "symbols": {
+   "BTCUSDT": {
+    "tickSize": "0.10",
+    "stepSize": "0.001"
+   },
+   "ETHUSDT": {
+    "tickSize": "0.01",
+    "stepSize": "0.001"
+   }
+  }
+ },
+ "recovered_shards": [],
+ "schema_version": 1
+}

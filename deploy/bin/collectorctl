@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# 运维入口：deploy/bin/collectorctl <start|stop|restart|status|logs|health|verify [DAY]|dashboard|enable|disable|units>
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+U="systemctl --user"
+SVC=binance-collector.service
+case "${1:-status}" in
+  start)    $U start $SVC ;;
+  stop)     $U stop $SVC ;;                       # 优雅停止：排空队列、关闭分片、提交 checkpoint（最长 180s）
+  restart)  $U restart $SVC ;;
+  status)   $U status $SVC --no-pager -l | head -25; echo; "$ROOT/deploy/bin/healthcheck.sh" ;;
+  logs)     journalctl --user -u $SVC -f -n "${2:-100}" ;;
+  health)   "$ROOT/deploy/bin/healthcheck.sh" ;;
+  verify)   "$ROOT/deploy/bin/daily_verify.sh" "${2:-}" ;;
+  dashboard) $U status binance-dashboard.service --no-pager | head -5; echo "http://127.0.0.1:8787" ;;
+  enable)   $U enable --now $SVC binance-dashboard.service binance-healthcheck.timer binance-daily-verify.timer ;;
+  disable)  $U disable --now $SVC binance-dashboard.service binance-healthcheck.timer binance-daily-verify.timer ;;
+  units)    $U list-units 'binance-*' --all --no-pager; $U list-timers 'binance-*' --all --no-pager ;;
+  reset)    $U reset-failed $SVC; echo "已清除失败计数，可再 start" ;;
+  *) echo "用法: $0 {start|stop|restart|status|logs [N]|health|verify [YYYYMMDD]|dashboard|enable|disable|units|reset}"; exit 2 ;;
+esac

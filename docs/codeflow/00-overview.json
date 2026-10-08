@@ -1,0 +1,32 @@
+{
+  "title": "总图 · 一笔行情进来，到一张单发出去，strategy/ 四个文件各管哪一段",
+  "intro": "上面一行是去程，从左到右是<b>每一笔行情</b>都要走一遍的顺序。strategy/ 里四个文件<b>互不 import</b>，是外面的 live/runner.py（实盘）和 backtest/engine.py（回测）把它们串起来的。竖虚线左边是 strategy/ 之外的代码。每个框下面的小字，是讲这一段的那张分图。",
+  "footer": "<b>三点值得注意。</b>① 大部分行情走不到最右边：特征预热没完、模型样本没到 2000、信号说「持有」，任一条都提前结束。② <b>风控不在回测里</b>——backtest/engine.py 只用前三个文件，risk.py 只有实盘的 executor 会调。③ 模型是<b>边预测边学</b>的：每一帧的对错要等 20 笔之后才知道，所以 model.py 里同时在做「回补 20 笔前的答案」和「出这一帧的预测」。",
+  "zones": [
+    { "cols": [0], "label": "strategy/ 之外", "note": "runner.py / engine.py" },
+    { "cols": [1, 2, 3], "label": "strategy/ 每笔行情都走", "note": "回测和实盘共用" },
+    { "cols": [4], "label": "strategy/ 只有实盘走", "note": "由 executor.py 调" }
+  ],
+  "columns": [
+    {
+      "out":  { "text": ["一笔行情快照", "交给这个标的的三件套"], "tag": "live/runner.py 第 71-88 行" },
+      "back": { "text": ["目标仓位变了", "就去下单"], "tag": "live/runner.py 第 89-97 行" }
+    },
+    {
+      "out":  { "text": ["算特征", "预热不够就此打住"], "tag": "分图 1  features.py" },
+      "back": { "text": ["（无回程）"], "tag": "" }
+    },
+    {
+      "out":  { "text": ["出预测", "顺手用 20 笔前的答案学一次"], "tag": "分图 2  model.py" },
+      "back": { "text": ["样本不到 2000", "预测不拿去用"], "tag": "runner.py 第 85-86 行看 ready" }
+    },
+    {
+      "out":  { "text": ["预测过门槛才动", "否则「持有」"], "tag": "分图 3  signal.py" },
+      "back": { "text": ["目标仓位 + 原因"], "tag": "分图 3" }
+    },
+    {
+      "out":  { "text": ["六道闸门", "任一不过就拒单"], "tag": "分图 4  risk.py", "thick": true },
+      "back": { "text": ["放行 / 拒单原因"], "tag": "executor.py 第 139 行" }
+    }
+  ]
+}

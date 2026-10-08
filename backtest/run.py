@@ -1,0 +1,210 @@
+"""一条命令跑完「特征 → 岭回归 → 逐单回测 → JSON 报告」，供面板读取。
+
+    python -m backtest.run BTCUSDT 2026-09-25 2026-09-26
+
+2026-09-26 全量重跑，与旧版的区别：
+- 期限统一 20 秒（横扫 3/5/10/20/30/60 秒后定的，20 秒在 BTC 与 ETH 上都接近最优）；
+- 栅格 100ms、三个回看窗口（1s/5s/30s）共 36 个特征，取代旧的 1 秒栅格 12 特征；
+- 六折前推嵌套选参：正则强度与信号阈值只在每折训练段内部的后 20% 上选，测试段只用一次；
+- 逐单明细导出引擎全部字段（入场/出场时刻与成交价、持仓时长、毛收益、手续费）；
+- 同时报吃单与挂单两套费率。挂单的排队与不成交未模拟，只作参照上界，不可当成可实现收益。
+
+报告写到 data/store/reports/backtest/{symbol}_{start}_{end}.json，面板 /api/bt/* 直接读它。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
+
+from backtest import engine as E
+from data import loader as L
+from strategy import features as F
+from strategy import horizon_scan as HS
+from strategy import model as M
+
+HORIZON_MS = 20_000        # 期限统一 20 秒
+MAKER_BPS = 2.0            # 币安 USDⓈ-M 永续 VIP0 maker 单边费率
+
+
+def pick_params(Xh: np.ndarray, Th: np.ndarray, yh: np.ndarray, cols: list[str],
+                fold, horizon_ms: int) -> tuple[float, float] | None:
+    """在训练段内部后 20% 上选 (alpha, 阈值分位数)，测试段不参与。不足则返回 None。"""
+    tr = fold.train
+    cut = int(len(tr) * 0.8)
+    inner_fit, inner_val = tr[:cut], tr[cut:]
+    if len(inner_val) < 200:
+        return None
+    inner_fit = inner_fit[Th[inner_fit] + horizon_ms <= Th[inner_val[0]]]
+    if len(inner_fit) < 500:
+        return None
+    best: tuple[float, float, float] | None = None
+    for a in HS.ALPHAS:
+        fit = M.fit_ridge(Xh[inner_fit], yh[inner_fit], alpha=a, cols=cols)
+        pv = M.predict(fit, Xh[inner_val])
+        for q in HS.QUANTILES:
+            thr = float(np.quantile(np.abs(pv), q))
+            n, mean_bps, _ = HS.trade_stats(pv, yh[inner_val], Th[inner_val], thr, horizon_ms)
+            if n >= 5 and np.isfinite(mean_bps) and (best is None or mean_bps > best[0]):
+                best = (mean_bps, a, q)
+    return None if best is None else (best[1], best[2])
+
+
+def _book_cols() -> list[str]:
+    return ["T_ms"] + [f"{s}_{k}_{i}" for s in ("bid", "ask")
+                       for k in ("px", "qty") for i in range(F.LEVELS)]
+def run(symbol: str, start_day: str, end_day: str | None = None, *,
+        horizon_ms: int = HORIZON_MS, n_folds: int = 6, size: float = 0.01,
+        delay_ms: int = 100, taker_bps: float = E.TAKER_BPS,
+        data_dir: Path = L.DEFAULT_DATA_DIR) -> dict:
+    X, T, mid, seg, cols = HS.build_features(symbol, start_day, end_day, data_dir=data_dir)
+    if len(T) == 0:
+        raise SystemExit(f"{symbol} {start_day}..{end_day} 没有样本，先确认数据目录和日期")
+    y = HS.labels_at(T, mid, seg, horizon_ms)
+    ok = np.isfinite(y)
+    Xh, Th, yh = X[ok], T[ok], y[ok]
+
+    folds = M.walk_forward_folds(Th, n_folds=n_folds, horizon_ms=horizon_ms)
+    if not folds:
+        raise SystemExit(f"样本 {len(Th)} 条不足以切 {n_folds} 折，缩短期限或补数据")
+
+    book = L.load("book_top20", symbol, start_day, end_day, data_dir=data_dir,
+                  columns=_book_cols())
+    bt_kw = dict(size=size, delay_ms=delay_ms, horizon_ms=horizon_ms, taker_bps=taker_bps)
+
+    fold_rows, sel_T, sel_pred, ic_list = [], [], [], []
+    for f in folds:
+        picked = pick_params(Xh, Th, yh, cols, f, horizon_ms)
+        if picked is None:
+            continue
+        alpha, q = picked
+        fit = M.fit_ridge(Xh[f.train], yh[f.train], alpha=alpha, cols=cols)
+        ptr = M.predict(fit, Xh[f.train])
+        thr = float(np.quantile(np.abs(ptr), q))          # 阈值只用训练段分布
+        pt, yt, tt = M.predict(fit, Xh[f.test]), yh[f.test], Th[f.test]
+        n, mean_bps, hit = HS.trade_stats(pt, yt, tt, thr, horizon_ms)
+        ic = float(np.corrcoef(pt, yt)[0, 1]) if len(yt) > 2 else float("nan")
+        ic_list.append(ic)
+        m = np.abs(pt) >= thr
+        sel_T.append(tt[m]); sel_pred.append(pt[m])
+        fold_rows.append({
+            "k": f.k, "alpha": alpha, "quantile": q, "enter_bps": round(thr, 4),
+            "n_train": len(f.train), "n_test": len(f.test), "n_trades": n,
+            "mean_bps": None if not np.isfinite(mean_bps) else round(mean_bps, 4),
+            "hit_rate": None if not np.isfinite(hit) else round(hit, 4),
+            "ic": None if not np.isfinite(ic) else round(ic, 4),
+            "r2_oos": round(M.r2_oos(pt, yt), 6),
+            "test_beg": f.t_test_beg, "test_end": f.t_test_end,
+        })
+    if not fold_rows:
+        raise SystemExit("每折的内层验证段都太短，选不出参数；增加样本或减少折数")
+
+    sT = np.concatenate(sel_T); sP = np.concatenate(sel_pred)
+    o = np.argsort(sT, kind="stable")
+    sT, sP = sT[o], sP[o]
+    trades = E.taker_backtest(book, sT, sP, enter_bps=0.0, **bt_kw)
+    return _assemble(symbol, start_day, end_day, horizon_ms, n_folds, size, delay_ms,
+                     taker_bps, cols, Xh, Th, yh, folds, fold_rows, ic_list, trades, sP)
+def _assemble(symbol, start_day, end_day, horizon_ms, n_folds, size, delay_ms,
+              taker_bps, cols, Xh, Th, yh, folds, fold_rows, ic_list, trades, sP) -> dict:
+    n = trades.num_rows
+    gross = trades["gross_bps"].to_numpy() if n else np.array([])
+    net_maker = gross - 2 * MAKER_BPS
+    alpha_mode = max({r["alpha"] for r in fold_rows}, key=lambda a:
+                     sum(1 for r in fold_rows if r["alpha"] == a))
+    fit_all = M.fit_ridge(Xh, yh, alpha=alpha_mode, cols=cols)
+    ics = np.array([i for i in ic_list if np.isfinite(i)])
+    rep = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "symbol": symbol, "start_day": start_day, "end_day": end_day or start_day,
+        "params": {"step_ms": HS.STEP_MS, "horizon_ms": horizon_ms, "delay_ms": delay_ms,
+                   "size": size, "taker_bps": taker_bps, "maker_bps": MAKER_BPS,
+                   "windows_ms": list(HS.WINDOWS), "n_folds": n_folds,
+                   "alpha": alpha_mode, "alpha_grid": list(HS.ALPHAS),
+                   "quantile_grid": list(HS.QUANTILES),
+                   "enter_bps": fold_rows[-1]["enter_bps"],
+                   "enter_bps_source": "每折训练段内层验证选，测试段未参与"},
+        "dataset": {"rows": len(Th), "features": cols, "y_bps_std": float(yh.std()),
+                    "split": {"folds": len(fold_rows),
+                              "train": int(np.mean([r["n_train"] for r in fold_rows])),
+                              "valid": 0,
+                              "test": int(sum(r["n_test"] for r in fold_rows))},
+                    "span": {"beg_ms": int(Th[0]), "end_ms": int(Th[-1]),
+                             "hours": (int(Th[-1]) - int(Th[0])) / 3.6e6}},
+        "model": {"kind": "ridge", "coefs": fit_all.coefs(), "intercept": fit_all.b,
+                  "note": "全样本重拟合，仅用于看特征方向；回测用的是各折自己的拟合"},
+        "folds": fold_rows,
+        "walk_forward": {"ic_mean": float(ics.mean()) if len(ics) else None,
+                         "ic_positive_folds": int((ics > 0).sum()), "ic_folds": len(ics)},
+        "scores": {"test": {"n": int(sum(r["n_test"] for r in fold_rows)),
+                            "corr": float(ics.mean()) if len(ics) else 0.0,
+                            "r2_oos": float(np.mean([r["r2_oos"] for r in fold_rows])),
+                            "rmse_improvement": float(np.mean([r["r2_oos"] for r in fold_rows]))}},
+        "backtest": E.metrics(trades),
+        "cost": {"taker_roundtrip_bps": 2 * taker_bps, "maker_roundtrip_bps": 2 * MAKER_BPS,
+                 "gross_bps_mean": float(gross.mean()) if n else None,
+                 "net_taker_bps_mean": float(gross.mean() - 2 * taker_bps) if n else None,
+                 "net_maker_bps_mean": float(net_maker.mean()) if n else None,
+                 "maker_note": "挂单排队与不成交未模拟，此列是乐观上界"},
+    }
+    g = lambda c: trades[c].to_pylist()
+    rep["equity"] = [
+        {"t": int(t), "entry_t": int(et), "signal_t": int(st), "side": int(sd),
+         "pred_bps": float(p), "entry_px": float(ep), "exit_px": float(xp),
+         "qty": float(q), "hold_ms": int(h), "gross_bps": float(gr),
+         "fee_bps": float(fe), "net_bps": float(nb), "net_maker_bps": float(nm),
+         "cum_bps": float(cb)}
+        for t, et, st, sd, p, ep, xp, q, h, gr, fe, nb, nm, cb in zip(
+            g("exit_T_ms"), g("entry_T_ms"), g("signal_T_ms"), g("side"), g("pred_bps"),
+            g("entry_px"), g("exit_px"), g("qty"), g("hold_ms"), g("gross_bps"),
+            g("fee_bps"), g("net_bps"), net_maker.tolist(), g("cum_bps"))]
+    rep["signal_hist"] = _hist(sP, 41)
+    rep["ret_hist"] = _hist(trades["net_bps"].to_numpy(), 41) if n else []
+    return rep
+def _hist(v: np.ndarray, bins: int) -> list[dict]:
+    v = np.asarray(v, dtype=np.float64)
+    if len(v) == 0:
+        return []
+    lo, hi = float(np.quantile(v, 0.001)), float(np.quantile(v, 0.999))
+    if not hi > lo:
+        lo, hi = float(v.min()) - 1e-9, float(v.max()) + 1e-9
+    cnt, edge = np.histogram(np.clip(v, lo, hi), bins=bins, range=(lo, hi))
+    return [{"x": float((edge[i] + edge[i + 1]) / 2), "n": int(cnt[i])} for i in range(len(cnt))]
+
+
+def report_path(root: Path, symbol: str, start_day: str, end_day: str | None) -> Path:
+    return root / "reports" / "backtest" / f"{symbol}_{start_day}_{end_day or start_day}.json"
+
+
+def main(argv: list[str] | None = None) -> None:
+    p = argparse.ArgumentParser(description="岭回归 + 逐单回测，输出 JSON 报告")
+    p.add_argument("symbol"); p.add_argument("start_day"); p.add_argument("end_day", nargs="?")
+    p.add_argument("--horizon-ms", type=int, default=HORIZON_MS)
+    p.add_argument("--n-folds", type=int, default=6)
+    p.add_argument("--size", type=float, default=0.01)
+    p.add_argument("--delay-ms", type=int, default=100)
+    p.add_argument("--data-dir", type=Path, default=L.DEFAULT_DATA_DIR)
+    a = p.parse_args(argv)
+    rep = run(a.symbol, a.start_day, a.end_day, horizon_ms=a.horizon_ms, n_folds=a.n_folds,
+              size=a.size, delay_ms=a.delay_ms, data_dir=a.data_dir)
+    out = report_path(a.data_dir, a.symbol, a.start_day, a.end_day)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
+    d, b, c, w = rep["dataset"], rep["backtest"], rep["cost"], rep["walk_forward"]
+    print(f"样本 {d['rows']:,}  跨度 {d['span']['hours']:.1f}h  "
+          f"折数 {d['split']['folds']}  期限 {rep['params']['horizon_ms']/1000:.0f}s")
+    print(f"相关系数均值 {w['ic_mean']:+.4f}  为正 {w['ic_positive_folds']}/{w['ic_folds']} 折")
+    print(f"成交 {b['n_trades']} 单 / 信号 {b['n_signals']}  跳过 {b['skipped']}")
+    if b["n_trades"]:
+        print(f"毛均 {c['gross_bps_mean']:+.4f}  吃单净 {c['net_taker_bps_mean']:+.4f}"
+              f"  挂单净 {c['net_maker_bps_mean']:+.4f}（乐观上界）")
+        print(f"毛胜率 {b['gross_hit_rate']:.3f}  净胜率 {b['hit_rate']:.3f}"
+              f"  最大回撤 {b['max_drawdown_bps']:.1f} bps")
+    print(f"报告 {out}")
+
+
+if __name__ == "__main__":
+    main()

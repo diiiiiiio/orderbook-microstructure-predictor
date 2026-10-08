@@ -1,0 +1,17 @@
+[Unit]
+Description=Binance collector read-only dashboard (127.0.0.1:8787)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/hf_forecasting
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/hf_forecasting/.venv/bin/python -m data.collector -c %h/hf_forecasting/deploy/config/collector.yaml dashboard --host 127.0.0.1 --port 8787
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=binance-dashboard
+
+[Install]
+WantedBy=default.target

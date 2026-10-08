@@ -1,0 +1,9 @@
+{
+  "id": "risk",
+  "title": "二、只有实盘走的一步：风控闸门",
+  "tip": "<b>回测里没有这一步。</b>backtest/engine.py 根本不 import risk.py，只有 live/executor.py 在真下单前会来问一句。",
+  "steps": [
+    { "spec": "04-risk.json", "title": "风控：六道闸门任一不过就拒单",
+      "desc": "急停文件 → 熔断状态 → 当日亏损 → 下单频率 → 单笔大小 → 持仓上限。前三道触发后会<b>把自己锁死</b>（halted），要人工复位或等跨日。放行之后，成交的登记是 executor 回头再调的两个小方法。" }
+  ]
+}

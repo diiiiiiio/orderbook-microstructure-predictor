@@ -1,0 +1,13 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+*.bak
+data/raw/
+logs/
+*.sqlite
+data/store/
+deploy/config/collector.yaml
+.pytest_cache/
+.claude/
+paper/

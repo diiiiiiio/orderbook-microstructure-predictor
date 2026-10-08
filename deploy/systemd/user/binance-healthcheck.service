@@ -1,0 +1,10 @@
+[Unit]
+Description=Binance collector health check (logs summary, exit code = health)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/hf_forecasting
+ExecStart=%h/hf_forecasting/deploy/bin/healthcheck.sh
+SyslogIdentifier=binance-healthcheck
+# 脚本退出码 1/2/3 表达健康级别，不算单元失败（避免 list-units 常驻 failed）；级别看日志那一行
+SuccessExitStatus=1 2 3

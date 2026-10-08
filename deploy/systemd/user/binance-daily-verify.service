@@ -1,0 +1,10 @@
+[Unit]
+Description=Verify yesterday's raw shards and replay order books (UTC day)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/hf_forecasting
+ExecStart=%h/hf_forecasting/deploy/bin/daily_verify.sh
+Nice=10
+IOSchedulingClass=idle
+SyslogIdentifier=binance-daily-verify

@@ -1,0 +1,69 @@
+# Binance USDⓈ-M Futures 公开行情采集配置（生产环境，公开端点，无密钥）
+exchange: binance
+market: usdm_futures
+symbols: [BTCUSDT, ETHUSDT]
+data_dir: data/store            # 相对项目根目录；建议改成独立磁盘路径
+proxy: null                     # 例如 http://127.0.0.1:7890；null 表示直连
+
+endpoints:
+  rest_base: https://fapi.binance.com
+  ws_public_base: wss://fstream.binance.com/public     # @depth 归 /public
+  ws_market_base: wss://fstream.binance.com/market     # @aggTrade、@markPrice 归 /market
+
+streams:
+  depth_speed: 100ms            # <symbol>@depth@100ms 完整深度增量流
+  agg_trade: true
+  mark_price_speed: 1s          # <symbol>@markPrice@1s
+
+ws:
+  open_timeout_s: 20
+  close_timeout_s: 5
+  idle_timeout_s: 30            # 整条连接静默超过该秒数 → 重连
+  max_message_bytes: 4194304
+  rotate_after_s: 82800         # 23h，官方单连接 24h 上限前主动轮换
+  rotation_overlap_s: 30
+  unsolicited_pong_s: 300
+  backoff: {initial_s: 1, max_s: 60, factor: 2, jitter: 0.3}
+  stream_silence_s: {depth: 5, aggTrade: 120, markPrice: 5}   # 单个流静默告警阈值
+
+rest:
+  timeout_s: 10
+  depth_limit: 1000
+  weight_budget_per_min: 1200   # 官方 2400/min，本地只用一半
+  time_sync_interval_s: 60
+  exchange_info_interval_s: 3600
+  max_retries: 5
+  backoff: {initial_s: 2, max_s: 120, factor: 2, jitter: 0.3}
+
+orderbook:
+  export_levels: 20
+  buffer_max_events: 20000
+  stale_after_ms: 5000
+  resync_min_interval_s: 1.0
+
+backfill:
+  enabled: true
+  page_limit: 1000
+  max_pages_per_gap: 500
+  window_hours: 48              # 实测 -4166 "recent 2 days only"
+  window_safety_margin_min: 30
+  max_attempts: 5
+  min_interval_s: 0.5
+
+storage:
+  raw_shard_max_bytes: 67108864 # 64 MiB
+  raw_shard_max_seconds: 900
+  raw_flush_interval_s: 1.0     # 刷到 OS 页缓存
+  raw_fsync_interval_s: 5.0     # 落盘；断电最多丢这段时间内的数据
+  compress_closed_shards: true
+  parquet_batch_rows: 5000
+  parquet_flush_interval_s: 30
+  parquet_compression: zstd
+  queue_max: 200000
+
+monitoring:
+  status_interval_s: 5
+  disk_warn_free_gb: 20
+  disk_fail_free_gb: 5
+  latency_window: 20000
+  log_level: INFO

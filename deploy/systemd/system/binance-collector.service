@@ -1,0 +1,31 @@
+# 系统级单元（/etc/systemd/system/）——仅当服务器可以直连 Binance、不依赖用户级代理时使用。
+# 本机（依赖用户级 clash）请用 deploy/systemd/user/ 版本。
+[Unit]
+Description=Binance USDS-M futures public market data collector
+After=network-online.target
+Wants=network-online.target
+
+# 10 分钟内最多重启 20 次，超过则放弃（防止死循环刷日志），需人工 systemctl --user reset-failed
+StartLimitIntervalSec=600
+StartLimitBurst=20
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=REPLACE_USER
+WorkingDirectory=/REPLACE/PATH/hf_forecasting
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/REPLACE/PATH/hf_forecasting/.venv/bin/python -m data.collector -c /REPLACE/PATH/hf_forecasting/deploy/config/collector.yaml run
+WatchdogSec=90
+WatchdogSignal=SIGTERM
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=180
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+Nice=-5
+SyslogIdentifier=binance-collector
+
+[Install]
+WantedBy=multi-user.target

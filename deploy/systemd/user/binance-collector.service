@@ -1,0 +1,39 @@
+# 用户级 systemd 单元（~/.config/systemd/user/）。
+# 采集器依赖用户级 clash 代理，因此与 clash 同级运行；配合 loginctl enable-linger 实现开机自启、无需登录。
+[Unit]
+Description=Binance USDS-M futures public market data collector (BTCUSDT/ETHUSDT)
+Documentation=file://%h/hf_forecasting/deploy/OPERATIONS.md
+After=network-online.target clash.service
+Wants=network-online.target
+# 代理挂了采集器也照常自己退避重连，所以只 Wants 不 Requires，避免代理重启把采集器一起拉停
+Wants=clash.service
+
+# 10 分钟内最多重启 20 次，超过则放弃（防止死循环刷日志），需人工 systemctl --user reset-failed
+StartLimitIntervalSec=600
+StartLimitBurst=20
+
+[Service]
+Type=notify
+NotifyAccess=main
+WorkingDirectory=%h/hf_forecasting
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/hf_forecasting/.venv/bin/python -m data.collector -c %h/hf_forecasting/deploy/config/collector.yaml run
+# 采集器每 1s 喂狗（仅在写线程存活且未失败时）；90s 没喂 → 用 SIGTERM 优雅重启
+WatchdogSec=90
+WatchdogSignal=SIGTERM
+# SIGTERM → 排空队列、关闭分片、提交 checkpoint；给足时间
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=180
+TimeoutStartSec=120
+# 任何退出（含正常退出、被 watchdog 杀、崩溃）都重启
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+Nice=-5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=binance-collector
+
+[Install]
+WantedBy=default.target
